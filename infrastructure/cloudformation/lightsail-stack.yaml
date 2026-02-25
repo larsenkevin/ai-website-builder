@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AI Website Builder - AWS Lightsail Infrastructure'
+
+Parameters:
+  InstanceName:
+    Type: String
+    Default: ai-website-builder
+    Description: Name for the Lightsail instance
+  
+  Domain:
+    Type: String
+    Description: Domain name for the website
+  
+  SSLEmail:
+    Type: String
+    Description: Email address for Let's Encrypt SSL certificates
+  
+  AnthropicAPIKey:
+    Type: String
+    NoEcho: true
+    Description: Anthropic API key for Claude integration
+  
+  TailscaleAuthKey:
+    Type: String
+    NoEcho: true
+    Description: Tailscale authentication key for VPN setup
+
+Resources:
+  # Lightsail Instance
+  WebsiteBuilderInstance:
+    Type: AWS::Lightsail::Instance
+    Properties:
+      InstanceName: !Ref InstanceName
+      AvailabilityZone: !Sub '${AWS::Region}a'
+      BlueprintId: ubuntu_22_04
+      BundleId: nano_2_0
+      UserData: !Sub |
+        #!/bin/bash
+        set -e
+        
+        # Log all output
+        exec > >(tee /var/log/user-data.log)
+        exec 2>&1
+        
+        echo "Starting AI Website Builder deployment..."
+        echo "Timestamp: $(date)"
+        
+        # Update package lists
+        echo "Updating package lists..."
+        apt-get update
+        
+        # Configure automatic security updates
+        echo "Configuring automatic security updates..."
+        apt-get install -y unattended-upgrades apt-listchanges
+        
+        # Configure unattended-upgrades
+        cat > /etc/apt/apt.conf.d/50unattended-upgrades <<'EOF'
+        Unattended-Upgrade::Allowed-Origins {
+            "$${distro_id}:$${distro_codename}";
+            "$${distro_id}:$${distro_codename}-security";
+            "$${distro_id}ESMApps:$${distro_codename}-apps-security";
+            "$${distro_id}ESM:$${distro_codename}-infra-security";
+        };
+        
+        Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+        Unattended-Upgrade::MinimalSteps "true";
+        Unattended-Upgrade::InstallOnShutdown "false";
+        Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+        Unattended-Upgrade::Remove-Unused-Dependencies "true";
+        Unattended-Upgrade::Automatic-Reboot "false";
+        Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+        EOF
+        
+        # Enable automatic updates
+        cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+        APT::Periodic::Update-Package-Lists "1";
+        APT::Periodic::Download-Upgradeable-Packages "1";
+        APT::Periodic::AutocleanInterval "7";
+        APT::Periodic::Unattended-Upgrade "1";
+        EOF
+        
+        # Install essential packages
+        echo "Installing essential packages..."
+        apt-get install -y \
+            curl \
+            wget \
+            git \
+            build-essential \
+            software-properties-common \
+            ufw \
+            fail2ban
+        
+        # Create application directory structure
+        echo "Creating application directories..."
+        mkdir -p /opt/website-builder/{app,config,assets,versions,logs}
+        mkdir -p /opt/website-builder/config/pages
+        mkdir -p /opt/website-builder/assets/{uploads,processed/{320,768,1920}}
+        mkdir -p /var/www/html
+        
+        # Set proper permissions
+        chown -R ubuntu:ubuntu /opt/website-builder
+        chmod 750 /opt/website-builder
+        chmod 755 /var/www/html
+        
+        echo "User data script completed successfully!"
+        echo "Timestamp: $(date)"
+      Tags:
+        - Key: Name
+          Value: !Ref InstanceName
+        - Key: Project
+          Value: ai-website-builder
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # Static IP
+  StaticIP:
+    Type: AWS::Lightsail::StaticIp
+    Properties:
+      StaticIpName: !Sub '${InstanceName}-static-ip'
+
+  # Attach Static IP to Instance
+  StaticIPAttachment:
+    Type: AWS::Lightsail::StaticIpAttachment
+    Properties:
+      StaticIpName: !Ref StaticIP
+      InstanceName: !Ref WebsiteBuilderInstance
+    DependsOn:
+      - StaticIP
+      - WebsiteBuilderInstance
+
+Outputs:
+  InstanceId:
+    Description: ID of the Lightsail instance
+    Value: !Ref WebsiteBuilderInstance
+  
+  InstanceName:
+    Description: Name of the Lightsail instance
+    Value: !Ref InstanceName
+  
+  PublicIP:
+    Description: Public IP address of the instance
+    Value: !GetAtt StaticIP.IpAddress
+  
+  StaticIPName:
+    Description: Name of the static IP
+    Value: !Ref StaticIP
+  
+  SSHCommand:
+    Description: SSH command to connect to the instance
+    Value: !Sub 'ssh ubuntu@${StaticIP.IpAddress}'
+  
+  NextSteps:
+    Description: Next steps after deployment
+    Value: !Sub |
+      Deployment complete! Next steps:
+      
+      1. Point your domain DNS to: ${StaticIP.IpAddress}
+      2. SSH into the instance: ssh ubuntu@${StaticIP.IpAddress}
+      3. Check deployment logs: sudo journalctl -u website-builder
+      4. Access builder interface via Tailscale VPN on port 3000
+      5. Public website will be available at: https://${Domain}

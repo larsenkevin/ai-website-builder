@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "InstanceName",
+    "ParameterValue": "ai-website-builder"
+  },
+  {
+    "ParameterKey": "Domain",
+    "ParameterValue": "example.com"
+  },
+  {
+    "ParameterKey": "SSLEmail",
+    "ParameterValue": "admin@example.com"
+  },
+  {
+    "ParameterKey": "AnthropicAPIKey",
+    "ParameterValue": "sk-ant-your-api-key-here"
+  },
+  {
+    "ParameterKey": "TailscaleAuthKey",
+    "ParameterValue": "tskey-auth-your-key-here"
+  }
+]

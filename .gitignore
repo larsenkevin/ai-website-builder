@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build output
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs
+logs/*.log
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Configuration files (contain user data)
+config/*.json
+!config/.gitkeep
+
+# Assets (user uploads)
+assets/uploads/*
+!assets/uploads/.gitkeep
+assets/processed/*
+!assets/processed/.gitkeep
+!assets/processed/320/.gitkeep
+!assets/processed/768/.gitkeep
+!assets/processed/1920/.gitkeep
+
+# Version backups
+versions/*
+!versions/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
