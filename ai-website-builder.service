@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Website Builder Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ai-website-builder
+EnvironmentFile=/etc/ai-website-builder/config.env
+ExecStart=/usr/bin/node /opt/ai-website-builder/dist/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-website-builder
+
+[Install]
+WantedBy=multi-user.target

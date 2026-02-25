@@ -514,8 +514,13 @@ collect_configuration_input() {
         
         log_operation "User provided Claude API key (masked)"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "claude_api_key" "$CLAUDE_API_KEY")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             display_success "Claude API key validated"
             log_operation "Claude API key validation: PASSED"
             break
@@ -536,8 +541,13 @@ collect_configuration_input() {
         
         log_operation "User provided domain name: $DOMAIN_NAME"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "domain_name" "$DOMAIN_NAME")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             display_success "Domain name validated"
             log_operation "Domain name validation: PASSED"
             break
@@ -558,8 +568,13 @@ collect_configuration_input() {
         
         log_operation "User provided Tailscale email: $TAILSCALE_EMAIL"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "tailscale_email" "$TAILSCALE_EMAIL")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             display_success "Tailscale email validated"
             log_operation "Tailscale email validation: PASSED"
             break
@@ -640,8 +655,13 @@ load_existing_configuration() {
         
         log_operation "User provided new Claude API key (masked)"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "claude_api_key" "$new_api_key")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             CLAUDE_API_KEY="$new_api_key"
             display_success "Claude API key updated"
             log_operation "Claude API key updated and validated"
@@ -670,8 +690,13 @@ load_existing_configuration() {
         
         log_operation "User provided new domain name: $new_domain"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "domain_name" "$new_domain")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             DOMAIN_NAME="$new_domain"
             display_success "Domain name updated"
             log_operation "Domain name updated and validated: $DOMAIN_NAME"
@@ -700,8 +725,13 @@ load_existing_configuration() {
         
         log_operation "User provided new Tailscale email: $new_email"
         
+        # Temporarily disable exit on error for validation
+        set +e
         validation_error=$(validate_configuration "tailscale_email" "$new_email")
-        if [ $? -eq 0 ]; then
+        validation_result=$?
+        set -e
+        
+        if [ $validation_result -eq 0 ]; then
             TAILSCALE_EMAIL="$new_email"
             display_success "Tailscale email updated"
             log_operation "Tailscale email updated and validated: $TAILSCALE_EMAIL"
@@ -994,6 +1024,62 @@ install_runtime_dependencies() {
     else
         display_warning "No package.json found in $REPOSITORY_PATH - skipping npm install"
         log_operation "WARNING: No package.json found - skipping npm install"
+    fi
+    
+    # Build the application
+    display_progress "Building application (compiling TypeScript)..."
+    log_operation "Running npm run build in $REPOSITORY_PATH"
+    
+    if [ -f "$REPOSITORY_PATH/package.json" ]; then
+        cd "$REPOSITORY_PATH"
+        
+        if npm run build >> "$LOG_FILE" 2>&1; then
+            display_success "Application built successfully"
+            log_operation "npm run build completed successfully"
+            
+            # Verify dist directory was created
+            if [ -d "$REPOSITORY_PATH/dist" ] && [ -f "$REPOSITORY_PATH/dist/server.js" ]; then
+                display_success "Build output verified (dist/server.js exists)"
+                log_operation "Build verification: dist/server.js exists"
+            else
+                display_error "Build completed but dist/server.js not found"
+                log_operation "ERROR: Build completed but dist/server.js not found"
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo -e "${RED}❌ ERROR: Application build verification failed${NC}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo ""
+                echo "Details: Build completed but expected output file not found"
+                echo ""
+                echo "Remediation:"
+                echo "  1. Check the log file for build errors: $LOG_FILE"
+                echo "  2. Verify tsconfig.json is configured correctly"
+                echo "  3. Check that app/server.ts exists"
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                exit 1
+            fi
+        else
+            display_error "Failed to build application"
+            log_operation "ERROR: npm run build failed"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo -e "${RED}❌ ERROR: Application build failed${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Details: Failed to compile TypeScript code"
+            echo ""
+            echo "Remediation:"
+            echo "  1. Check the log file for detailed error information: $LOG_FILE"
+            echo "  2. Verify TypeScript is installed correctly"
+            echo "  3. Try running 'npm run build' manually in $REPOSITORY_PATH"
+            echo "  4. Check for TypeScript compilation errors"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+        fi
+        
+        cd - > /dev/null
     fi
     
     display_success "All runtime dependencies installed successfully"
@@ -1307,12 +1393,13 @@ configure_web_server() {
     
     local nginx_config="/etc/nginx/sites-available/ai-website-builder"
     
+    # Create initial HTTP-only configuration (SSL will be added after certificate acquisition)
     cat > "$nginx_config" << EOF
 # AI Website Builder - Nginx Configuration
 # Generated: $(date -Iseconds)
 # Domain: $DOMAIN_NAME
 
-# HTTP Server Block - Handles ACME challenges and redirects to HTTPS
+# HTTP Server Block - Handles ACME challenges and serves application
 server {
     listen 80;
     listen [::]:80;
@@ -1323,27 +1410,6 @@ server {
         root /var/www/certbot;
         try_files \$uri =404;
     }
-    
-    # Redirect all other HTTP traffic to HTTPS
-    location / {
-        return 301 https://\$server_name\$request_uri;
-    }
-}
-
-# HTTPS Server Block - Proxies to AI Website Builder application
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name $DOMAIN_NAME;
-    
-    # SSL certificate paths (will be configured by certbot)
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
-    
-    # SSL configuration for security
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     
     # Proxy to AI Website Builder application on localhost:3000
     location / {
@@ -1551,6 +1617,182 @@ setup_ssl_certificates() {
         return 0
     fi
     
+    # Validate DNS configuration before attempting certificate acquisition
+    display_progress "Validating DNS configuration for $DOMAIN_NAME..."
+    log_operation "Checking if $DOMAIN_NAME resolves to this server's IP"
+    
+    # Get server's public IP address
+    local server_ip=""
+    
+    # Try multiple methods to get public IP
+    if command -v curl >/dev/null 2>&1; then
+        server_ip=$(curl -s -4 https://ifconfig.me 2>/dev/null || curl -s -4 https://icanhazip.com 2>/dev/null || curl -s -4 https://api.ipify.org 2>/dev/null)
+    elif command -v wget >/dev/null 2>&1; then
+        server_ip=$(wget -qO- -4 https://ifconfig.me 2>/dev/null || wget -qO- -4 https://icanhazip.com 2>/dev/null)
+    fi
+    
+    if [ -z "$server_ip" ]; then
+        display_warning "Could not determine server's public IP address"
+        log_operation "WARNING: Unable to determine server public IP for DNS validation"
+    else
+        display_info "Server public IP: $server_ip"
+        log_operation "Server public IP detected: $server_ip"
+    fi
+    
+    # Check DNS resolution
+    local domain_ip=""
+    if command -v dig >/dev/null 2>&1; then
+        domain_ip=$(dig +short "$DOMAIN_NAME" A | head -n 1)
+    elif command -v nslookup >/dev/null 2>&1; then
+        domain_ip=$(nslookup "$DOMAIN_NAME" 2>/dev/null | grep -A1 "Name:" | tail -n1 | awk '{print $2}')
+    elif command -v host >/dev/null 2>&1; then
+        domain_ip=$(host "$DOMAIN_NAME" 2>/dev/null | grep "has address" | head -n1 | awk '{print $4}')
+    fi
+    
+    if [ -z "$domain_ip" ]; then
+        display_warning "DNS validation: $DOMAIN_NAME does not resolve to any IP address"
+        log_operation "DNS validation failed: Domain does not resolve"
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${YELLOW}⚠ DNS Configuration Required${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Your domain $DOMAIN_NAME is not yet configured in DNS."
+        echo ""
+        echo "SSL certificate acquisition requires that your domain points to this server."
+        echo ""
+        if [ -n "$server_ip" ]; then
+            echo "To configure DNS:"
+            echo "  1. Log in to your domain registrar or DNS provider"
+            echo "  2. Create an A record for $DOMAIN_NAME"
+            echo "  3. Point it to this server's IP address: $server_ip"
+            echo "  4. Wait for DNS propagation (can take 5 minutes to 48 hours)"
+            echo ""
+            echo "You can check DNS propagation with:"
+            echo "  dig +short $DOMAIN_NAME"
+            echo "  (should return: $server_ip)"
+        else
+            echo "To configure DNS:"
+            echo "  1. Determine this server's public IP address"
+            echo "  2. Log in to your domain registrar or DNS provider"
+            echo "  3. Create an A record for $DOMAIN_NAME pointing to the server IP"
+            echo "  4. Wait for DNS propagation (can take 5 minutes to 48 hours)"
+        fi
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        
+        display_info "Skipping SSL certificate acquisition for now"
+        display_info "The application will be accessible via HTTP only"
+        log_operation "Skipping SSL certificate acquisition - DNS not configured"
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${BLUE}ℹ After DNS Configuration${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Once your DNS is configured and propagated, run this command"
+        echo "to acquire SSL certificates and enable HTTPS:"
+        echo ""
+        echo "  sudo DOMAIN=$DOMAIN_NAME SSL_EMAIL=$TAILSCALE_EMAIL $SCRIPT_DIR/configure-ssl.sh"
+        echo ""
+        echo "Or manually run:"
+        echo "  sudo certbot certonly --nginx -d $DOMAIN_NAME --email $TAILSCALE_EMAIL --agree-tos --non-interactive"
+        echo "  # Then update nginx config to add HTTPS block and reload"
+        echo ""
+        echo "Or re-run the deployment script - it will detect existing installation"
+        echo "and only attempt SSL certificate acquisition:"
+        echo ""
+        echo "  sudo $SCRIPT_DIR/deploy.sh"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        
+        return 0
+    fi
+    
+    # Check if domain resolves to this server
+    if [ -n "$server_ip" ] && [ "$domain_ip" != "$server_ip" ]; then
+        display_warning "DNS validation: $DOMAIN_NAME resolves to $domain_ip (expected: $server_ip)"
+        log_operation "DNS validation warning: Domain resolves to $domain_ip but server IP is $server_ip"
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${YELLOW}⚠ DNS Configuration Mismatch${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Your domain $DOMAIN_NAME is configured in DNS, but it points"
+        echo "to a different IP address than this server."
+        echo ""
+        echo "Current DNS configuration:"
+        echo "  Domain: $DOMAIN_NAME"
+        echo "  Resolves to: $domain_ip"
+        echo ""
+        echo "This server's IP:"
+        echo "  Server IP: $server_ip"
+        echo ""
+        echo "SSL certificate acquisition will likely fail because Let's Encrypt"
+        echo "will try to validate the domain at $domain_ip instead of this server."
+        echo ""
+        echo "To fix this:"
+        echo "  1. Log in to your domain registrar or DNS provider"
+        echo "  2. Update the A record for $DOMAIN_NAME"
+        echo "  3. Change it to point to: $server_ip"
+        echo "  4. Wait for DNS propagation (can take 5 minutes to 48 hours)"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        
+        # Ask user if they want to proceed anyway
+        while true; do
+            echo -n "Do you want to attempt SSL certificate acquisition anyway? (yes/no): "
+            read -r response
+            
+            case "$response" in
+                [Yy]|[Yy][Ee][Ss])
+                    display_info "Proceeding with SSL certificate acquisition despite DNS mismatch"
+                    log_operation "User chose to proceed with SSL acquisition despite DNS mismatch"
+                    break
+                    ;;
+                [Nn]|[Nn][Oo])
+                    display_info "Skipping SSL certificate acquisition"
+                    log_operation "User chose to skip SSL acquisition due to DNS mismatch"
+                    
+                    echo ""
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo -e "${BLUE}ℹ After DNS Configuration${NC}"
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo ""
+                    echo "Once your DNS is updated and propagated, run this command"
+                    echo "to acquire SSL certificates and enable HTTPS:"
+                    echo ""
+                    echo "  sudo DOMAIN=$DOMAIN_NAME SSL_EMAIL=$TAILSCALE_EMAIL $SCRIPT_DIR/configure-ssl.sh"
+                    echo ""
+                    echo "Or manually run:"
+                    echo "  sudo certbot certonly --nginx -d $DOMAIN_NAME --email $TAILSCALE_EMAIL --agree-tos --non-interactive"
+                    echo "  # Then update nginx config to add HTTPS block and reload"
+                    echo ""
+                    echo "Or re-run the deployment script - it will detect existing installation"
+                    echo "and only attempt SSL certificate acquisition:"
+                    echo ""
+                    echo "  sudo $SCRIPT_DIR/deploy.sh"
+                    echo ""
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo ""
+                    
+                    return 0
+                    ;;
+                *)
+                    echo "Please answer 'yes' or 'no'"
+                    ;;
+            esac
+        done
+    else
+        display_success "DNS validation: $DOMAIN_NAME resolves to $domain_ip"
+        log_operation "DNS validation passed: Domain resolves to correct IP"
+    fi
+    
     # Verify nginx is running (required for certbot nginx plugin)
     if ! systemctl is-active --quiet nginx; then
         display_warning "Nginx is not running, attempting to start..."
@@ -1664,6 +1906,134 @@ setup_ssl_certificates() {
         echo "       systemctl stop nginx"
         echo "       certbot certonly --standalone -d $DOMAIN_NAME"
         echo "       systemctl start nginx"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+    
+    # Update nginx configuration to add HTTPS block with SSL certificates
+    display_progress "Updating nginx configuration to enable HTTPS..."
+    log_operation "Adding HTTPS configuration block to nginx"
+    
+    local nginx_config="/etc/nginx/sites-available/ai-website-builder"
+    
+    # Create updated configuration with both HTTP and HTTPS blocks
+    cat > "$nginx_config" << EOF
+# AI Website Builder - Nginx Configuration
+# Generated: $(date -Iseconds)
+# Domain: $DOMAIN_NAME
+# SSL Certificates: Enabled
+
+# HTTP Server Block - Handles ACME challenges and redirects to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN_NAME;
+    
+    # ACME challenge location for Let's Encrypt certificate acquisition
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        try_files \$uri =404;
+    }
+    
+    # Redirect all other HTTP traffic to HTTPS
+    location / {
+        return 301 https://\$server_name\$request_uri;
+    }
+}
+
+# HTTPS Server Block - Proxies to AI Website Builder application
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name $DOMAIN_NAME;
+    
+    # SSL certificate paths
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
+    
+    # SSL configuration for security
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    
+    # Proxy to AI Website Builder application on localhost:3000
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        
+        # Proxy headers
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # WebSocket support (if needed)
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+    
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Logging
+    access_log /var/log/nginx/ai-website-builder-access.log;
+    error_log /var/log/nginx/ai-website-builder-error.log;
+}
+EOF
+    
+    if [ $? -eq 0 ]; then
+        display_success "Nginx configuration updated with HTTPS support"
+        log_operation "Nginx configuration updated successfully"
+    else
+        display_error "Failed to update nginx configuration"
+        log_operation "ERROR: Failed to update nginx configuration with HTTPS"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${RED}❌ ERROR: Nginx configuration update failed${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Details: Failed to write updated nginx configuration"
+        echo ""
+        echo "Remediation:"
+        echo "  1. Check write permissions to /etc/nginx/sites-available/"
+        echo "  2. Manually update the configuration file: $nginx_config"
+        echo "  3. Check the log file for details: $LOG_FILE"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+    
+    # Test nginx configuration syntax
+    display_progress "Testing updated nginx configuration..."
+    log_operation "Running nginx -t to test updated configuration"
+    
+    if nginx -t >> "$LOG_FILE" 2>&1; then
+        display_success "Nginx configuration syntax is valid"
+        log_operation "Nginx configuration syntax test passed"
+    else
+        display_error "Nginx configuration syntax test failed"
+        log_operation "ERROR: Nginx configuration syntax test failed after HTTPS update"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${RED}❌ ERROR: Nginx configuration syntax error${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Details: The updated nginx configuration has syntax errors"
+        echo ""
+        echo "Remediation:"
+        echo "  1. Check the log file for detailed error information: $LOG_FILE"
+        echo "  2. Review the configuration file: $nginx_config"
+        echo "  3. Run 'nginx -t' manually to see the specific error"
+        echo "  4. Verify SSL certificate paths exist:"
+        echo "     ls -la /etc/letsencrypt/live/$DOMAIN_NAME/"
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         exit 1
@@ -1879,9 +2249,62 @@ generate_qr_codes() {
         log_operation "Created QR code directory with 700 permissions: $QR_CODE_DIR"
     fi
     
+    # Create web-accessible directory for QR codes
+    local web_qr_dir="/var/www/html/qr-codes"
+    if [ ! -d "$web_qr_dir" ]; then
+        mkdir -p "$web_qr_dir"
+        chmod 755 "$web_qr_dir"
+        chown www-data:www-data "$web_qr_dir"
+        display_success "Created web-accessible QR code directory: $web_qr_dir"
+        log_operation "Created web-accessible QR code directory: $web_qr_dir"
+    fi
+    
+    # Determine base URL for QR code access
+    local base_url=""
+    local protocol="http"
+    
+    # Check if SSL certificates exist
+    if [ -d "/etc/letsencrypt/live/$DOMAIN_NAME" ] && \
+       [ -f "/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem" ]; then
+        protocol="https"
+        base_url="${protocol}://${DOMAIN_NAME}"
+        display_info "Using HTTPS URL for QR codes: $base_url"
+        log_operation "SSL certificates found - using HTTPS URL: $base_url"
+    else
+        # No SSL, determine if we should use domain or IP
+        # Try to get server's public IP
+        local server_ip=""
+        if command -v curl >/dev/null 2>&1; then
+            server_ip=$(curl -s -4 --max-time 5 https://ifconfig.me 2>/dev/null || curl -s -4 --max-time 5 https://icanhazip.com 2>/dev/null)
+        fi
+        
+        # Check if domain resolves to this server
+        local domain_ip=""
+        if command -v dig >/dev/null 2>&1; then
+            domain_ip=$(dig +short "$DOMAIN_NAME" A | head -n 1)
+        fi
+        
+        # Use domain if it resolves to this server, otherwise use IP
+        if [ -n "$domain_ip" ] && [ "$domain_ip" = "$server_ip" ]; then
+            base_url="${protocol}://${DOMAIN_NAME}"
+            display_info "Using HTTP domain URL for QR codes: $base_url"
+            log_operation "Domain resolves correctly - using HTTP domain URL: $base_url"
+        elif [ -n "$server_ip" ]; then
+            base_url="${protocol}://${server_ip}"
+            display_info "Using HTTP IP URL for QR codes: $base_url"
+            log_operation "Using server IP for QR codes: $base_url"
+        else
+            # Fallback to domain name
+            base_url="${protocol}://${DOMAIN_NAME}"
+            display_warning "Could not determine server IP, using domain name"
+            log_operation "WARNING: Could not determine server IP, using domain name: $base_url"
+        fi
+    fi
+    
     # Tailscale app store link (universal link that works for both iOS and Android)
     local tailscale_app_url="https://tailscale.com/download"
     local tailscale_qr_png="$QR_CODE_DIR/tailscale-app.png"
+    local tailscale_qr_web="$web_qr_dir/tailscale-app.png"
     local tailscale_qr_ascii="$QR_CODE_DIR/tailscale-app.txt"
     
     display_progress "Generating QR code for Tailscale app store..."
@@ -1890,8 +2313,15 @@ generate_qr_codes() {
     # Generate PNG QR code
     if qrencode -o "$tailscale_qr_png" -s 10 -m 2 "$tailscale_app_url" 2>> "$LOG_FILE"; then
         chmod 644 "$tailscale_qr_png"
-        display_success "Tailscale app QR code saved to: $tailscale_qr_png"
-        log_operation "Tailscale app QR code PNG generated: $tailscale_qr_png"
+        
+        # Copy to web directory
+        cp "$tailscale_qr_png" "$tailscale_qr_web"
+        chmod 644 "$tailscale_qr_web"
+        chown www-data:www-data "$tailscale_qr_web"
+        
+        local tailscale_qr_url="${base_url}/qr-codes/tailscale-app.png"
+        display_success "Tailscale app QR code: $tailscale_qr_url"
+        log_operation "Tailscale app QR code PNG generated and published: $tailscale_qr_url"
     else
         display_error "Failed to generate Tailscale app QR code PNG"
         log_operation "ERROR: Failed to generate Tailscale app QR code PNG"
@@ -1921,36 +2351,14 @@ generate_qr_codes() {
         log_operation "WARNING: Failed to generate Tailscale app QR code ASCII art"
     fi
     
-    # Service access URL QR code (using Tailscale hostname)
+    # Service access URL QR code
     display_progress "Generating QR code for service access URL..."
     log_operation "Generating QR code for service access URL"
     
-    # Get Tailscale hostname
-    local tailscale_hostname=""
-    if command -v tailscale >/dev/null 2>&1; then
-        # Try to get hostname from tailscale status
-        tailscale_hostname=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | cut -d'"' -f4 | head -n1)
-        
-        # If that fails, try alternative method
-        if [ -z "$tailscale_hostname" ]; then
-            tailscale_hostname=$(tailscale status 2>/dev/null | head -n1 | awk '{print $2}')
-        fi
-        
-        # If still empty, use domain name as fallback
-        if [ -z "$tailscale_hostname" ]; then
-            display_warning "Could not determine Tailscale hostname, using domain name"
-            log_operation "WARNING: Could not determine Tailscale hostname, using domain name as fallback"
-            tailscale_hostname="$DOMAIN_NAME"
-        fi
-    else
-        display_warning "Tailscale not available, using domain name for service access URL"
-        log_operation "WARNING: Tailscale not available, using domain name for service access URL"
-        tailscale_hostname="$DOMAIN_NAME"
-    fi
-    
-    # Construct service access URL (assuming HTTPS)
-    local service_access_url="https://${tailscale_hostname}"
+    # Use the same base URL we determined earlier
+    local service_access_url="$base_url"
     local service_qr_png="$QR_CODE_DIR/service-access.png"
+    local service_qr_web="$web_qr_dir/service-access.png"
     local service_qr_ascii="$QR_CODE_DIR/service-access.txt"
     
     log_operation "Service access URL: $service_access_url"
@@ -1958,8 +2366,15 @@ generate_qr_codes() {
     # Generate PNG QR code for service access
     if qrencode -o "$service_qr_png" -s 10 -m 2 "$service_access_url" 2>> "$LOG_FILE"; then
         chmod 644 "$service_qr_png"
-        display_success "Service access QR code saved to: $service_qr_png"
-        log_operation "Service access QR code PNG generated: $service_qr_png"
+        
+        # Copy to web directory
+        cp "$service_qr_png" "$service_qr_web"
+        chmod 644 "$service_qr_web"
+        chown www-data:www-data "$service_qr_web"
+        
+        local service_qr_url="${base_url}/qr-codes/service-access.png"
+        display_success "Service access QR code: $service_qr_url"
+        log_operation "Service access QR code PNG generated and published: $service_qr_url"
     else
         display_error "Failed to generate service access QR code PNG"
         log_operation "ERROR: Failed to generate service access QR code PNG"
@@ -1990,6 +2405,19 @@ generate_qr_codes() {
     fi
     
     echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}QR Codes Available${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Tailscale App Download:"
+    echo "  ${base_url}/qr-codes/tailscale-app.png"
+    echo ""
+    echo "Service Access:"
+    echo "  ${base_url}/qr-codes/service-access.png"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
     display_success "QR code generation completed"
     log_operation "QR code generation completed successfully"
 }
@@ -2091,9 +2519,104 @@ display_qr_codes_terminal() {
 
 # Configure systemd service
 configure_systemd_service() {
-    display_progress "Systemd service configuration (placeholder)"
+    display_progress "Configuring systemd service..."
     log_operation "FUNCTION: configure_systemd_service called"
-    # TODO: Implement in Task 13.1
+    
+    local service_file="/etc/systemd/system/ai-website-builder.service"
+    
+    # Create systemd service file
+    display_progress "Creating systemd service file..."
+    log_operation "Creating systemd service file at $service_file"
+    
+    cat > "$service_file" << EOF
+[Unit]
+Description=AI Website Builder Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$REPOSITORY_PATH
+EnvironmentFile=$CONFIG_FILE
+ExecStart=/usr/bin/node $REPOSITORY_PATH/dist/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-website-builder
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    if [ $? -eq 0 ]; then
+        display_success "Systemd service file created"
+        log_operation "Systemd service file created successfully"
+    else
+        display_error "Failed to create systemd service file"
+        log_operation "ERROR: Failed to create systemd service file"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${RED}❌ ERROR: Systemd service file creation failed${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Details: Failed to write systemd service file"
+        echo ""
+        echo "Remediation:"
+        echo "  1. Check write permissions to /etc/systemd/system/"
+        echo "  2. Verify you're running as root"
+        echo "  3. Check the log file for details: $LOG_FILE"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+    
+    # Set proper permissions
+    chmod 644 "$service_file"
+    chown root:root "$service_file"
+    log_operation "Set service file permissions to 644 and ownership to root:root"
+    
+    # Reload systemd daemon
+    display_progress "Reloading systemd daemon..."
+    log_operation "Running systemctl daemon-reload"
+    
+    if systemctl daemon-reload >> "$LOG_FILE" 2>&1; then
+        display_success "Systemd daemon reloaded"
+        log_operation "Systemd daemon reloaded successfully"
+    else
+        display_error "Failed to reload systemd daemon"
+        log_operation "ERROR: Failed to reload systemd daemon"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${RED}❌ ERROR: Systemd daemon reload failed${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Details: systemctl daemon-reload command failed"
+        echo ""
+        echo "Remediation:"
+        echo "  1. Check the log file for details: $LOG_FILE"
+        echo "  2. Verify the service file exists: ls -l /etc/systemd/system/ai-website-builder.service"
+        echo "  3. Check service file syntax: systemd-analyze verify ai-website-builder.service"
+        echo "  4. View systemd errors: journalctl -xe"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+    
+    # Enable service to start on boot
+    display_progress "Enabling ai-website-builder service..."
+    log_operation "Running systemctl enable ai-website-builder"
+    
+    if systemctl enable ai-website-builder >> "$LOG_FILE" 2>&1; then
+        display_success "Service enabled to start on boot"
+        log_operation "Service enabled successfully"
+    else
+        display_warning "Failed to enable service (non-critical)"
+        log_operation "WARNING: Failed to enable service"
+    fi
+    
+    display_success "Systemd service configuration completed"
+    log_operation "Systemd service configuration completed successfully"
 }
 
 # Start services
@@ -2632,6 +3155,33 @@ update_dependencies() {
         log_operation "Repository not found at $REPOSITORY_PATH - skipping npm update"
     fi
     
+    # Rebuild the application after dependency updates
+    if [ -d "$REPOSITORY_PATH" ] && [ -f "$REPOSITORY_PATH/package.json" ]; then
+        display_progress "Rebuilding application..."
+        log_operation "Running npm run build in $REPOSITORY_PATH"
+        
+        cd "$REPOSITORY_PATH"
+        
+        if npm run build >> "$LOG_FILE" 2>&1; then
+            display_success "Application rebuilt successfully"
+            log_operation "npm run build completed successfully"
+            
+            # Verify dist directory was created
+            if [ -d "$REPOSITORY_PATH/dist" ] && [ -f "$REPOSITORY_PATH/dist/server.js" ]; then
+                display_success "Build output verified (dist/server.js exists)"
+                log_operation "Build verification: dist/server.js exists"
+            else
+                display_warning "Build completed but dist/server.js not found"
+                log_operation "WARNING: Build completed but dist/server.js not found"
+            fi
+        else
+            display_warning "Failed to rebuild application"
+            log_operation "WARNING: npm run build failed in update mode"
+        fi
+        
+        cd - > /dev/null
+    fi
+    
     # Check for Tailscale updates
     if command -v tailscale >/dev/null 2>&1; then
         display_progress "Checking for Tailscale updates..."
@@ -2878,35 +3428,309 @@ main() {
     # Phase 5: Tailscale authentication
     display_progress "Phase 5: Tailscale authentication"
     
-    # Check if Tailscale is already authenticated
-    if tailscale status >/dev/null 2>&1; then
+    # First, verify Tailscale is installed
+    if ! command -v tailscale >/dev/null 2>&1; then
+        display_warning "Tailscale is not installed"
+        log_operation "WARNING: Tailscale command not found"
+        
+        # Offer to install it now
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${YELLOW}⚠ Tailscale Not Installed${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Tailscale provides secure remote access to your server."
+        echo ""
+        
+        while true; do
+            echo -n "Would you like to install Tailscale now? (yes/no): "
+            read -r response
+            
+            case "$response" in
+                [Yy]|[Yy][Ee][Ss])
+                    display_info "Installing Tailscale..."
+                    log_operation "User chose to install Tailscale"
+                    install_tailscale
+                    break
+                    ;;
+                [Nn]|[Nn][Oo])
+                    display_info "Skipping Tailscale installation"
+                    log_operation "User chose to skip Tailscale installation"
+                    echo ""
+                    echo "You can install Tailscale later by running:"
+                    echo "  curl -fsSL https://tailscale.com/install.sh | sh"
+                    echo "  sudo tailscale up"
+                    echo ""
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo ""
+                    # Skip to next phase
+                    echo ""
+                    display_progress "Phase 6: Finalization"
+                    generate_qr_codes
+                    configure_systemd_service
+                    save_installation_state
+                    if [ "$MODE" = "update" ]; then
+                        restart_services
+                    else
+                        start_services
+                    fi
+                    verify_service_status
+                    verify_domain_accessibility
+                    echo ""
+                    display_deployment_success
+                    return 0
+                    ;;
+                *)
+                    echo "Please answer 'yes' or 'no'"
+                    ;;
+            esac
+        done
+    fi
+    
+    # Verify tailscaled service is running
+    if ! systemctl is-active --quiet tailscaled; then
+        display_warning "tailscaled service is not running"
+        log_operation "WARNING: tailscaled service not active"
+        
+        display_progress "Starting tailscaled service..."
+        if systemctl start tailscaled >> "$LOG_FILE" 2>&1; then
+            display_success "tailscaled service started"
+            log_operation "tailscaled service started successfully"
+            # Give it a moment to initialize
+            sleep 2
+        else
+            display_error "Failed to start tailscaled service"
+            log_operation "ERROR: Failed to start tailscaled service"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo -e "${RED}❌ ERROR: Tailscale service failed to start${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Remediation:"
+            echo "  1. Check service status: systemctl status tailscaled"
+            echo "  2. Check logs: journalctl -u tailscaled -n 50"
+            echo "  3. Check the deployment log: $LOG_FILE"
+            echo ""
+            echo "You can continue without Tailscale, but remote access will be limited."
+            echo ""
+            
+            while true; do
+                echo -n "Continue without Tailscale? (yes/no): "
+                read -r response
+                
+                case "$response" in
+                    [Yy]|[Yy][Ee][Ss])
+                        display_info "Continuing without Tailscale"
+                        log_operation "User chose to continue without Tailscale"
+                        echo ""
+                        display_progress "Phase 6: Finalization"
+                        generate_qr_codes
+                        configure_systemd_service
+                        save_installation_state
+                        if [ "$MODE" = "update" ]; then
+                            restart_services
+                        else
+                            start_services
+                        fi
+                        verify_service_status
+                        verify_domain_accessibility
+                        echo ""
+                        display_deployment_success
+                        return 0
+                        ;;
+                    [Nn]|[Nn][Oo])
+                        display_error "Deployment cancelled"
+                        log_operation "User cancelled deployment due to Tailscale service failure"
+                        exit 1
+                        ;;
+                    *)
+                        echo "Please answer 'yes' or 'no'"
+                        ;;
+                esac
+            done
+        fi
+    fi
+    
+    # Tailscale authentication with retry logic
+    local max_auth_attempts=3
+    local auth_attempt=1
+    local auth_successful=false
+    
+    while [ $auth_attempt -le $max_auth_attempts ] && [ "$auth_successful" = false ]; do
+        if [ $auth_attempt -gt 1 ]; then
+            echo ""
+            display_progress "Tailscale authentication attempt $auth_attempt of $max_auth_attempts"
+            log_operation "Tailscale authentication retry attempt $auth_attempt"
+        fi
+        
+        # Check Tailscale status
         local status_output=$(tailscale status 2>&1)
+        local status_exit_code=$?
+        
+        log_operation "Tailscale status exit code: $status_exit_code"
+        log_operation "Tailscale status output: $status_output"
+        
+        # Check if already authenticated and connected
         if echo "$status_output" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
             display_info "Tailscale is already authenticated and connected"
             log_operation "Tailscale already authenticated - skipping authentication"
-        else
+            auth_successful=true
+            break
+        fi
+        
+        # Check if logged out (needs authentication)
+        if echo "$status_output" | grep -qi "logged out\|not logged in"; then
+            display_info "Tailscale is installed but not authenticated"
+            log_operation "Tailscale status shows logged out - proceeding with authentication"
+            
             # Need to authenticate
             display_progress "Starting Tailscale authentication..."
             log_operation "Running tailscale up to initiate authentication"
             
-            # Run tailscale up and capture output
-            local tailscale_output=$(tailscale up 2>&1)
-            log_operation "Tailscale up output: $tailscale_output"
+            # Run tailscale up with explicit flags to ensure we get the auth URL
+            echo ""
+            echo "Running: tailscale up --accept-routes"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
-            # Extract authentication URL from output
-            local auth_url=$(echo "$tailscale_output" | grep -oP 'https://login\.tailscale\.com/[^ ]+' | head -n1)
+            # Run tailscale up directly (not captured) so user can see output in real-time
+            tailscale up --accept-routes
+            local tailscale_exit_code=$?
             
-            if [ -n "$auth_url" ]; then
-                handle_browser_authentication "$auth_url"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            
+            log_operation "Tailscale up exit code: $tailscale_exit_code"
+            
+            if [ $tailscale_exit_code -eq 0 ]; then
+                display_success "Tailscale up command completed"
+                log_operation "Tailscale up completed successfully"
+                
+                # Check if authentication succeeded
+                local status_check=$(tailscale status 2>&1)
+                if echo "$status_check" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+                    display_success "Tailscale authentication successful"
+                    log_operation "Tailscale authentication completed successfully"
+                    auth_successful=true
+                    break
+                else
+                    display_info "Tailscale up completed, checking status..."
+                    echo "Current status:"
+                    echo "$status_check"
+                    echo ""
+                    
+                    # Ask user if they completed authentication
+                    while true; do
+                        echo -n "Did you complete the authentication in your browser? (yes/no/retry): "
+                        read -r response
+                        
+                        case "$response" in
+                            [Yy]|[Yy][Ee][Ss])
+                                # Check again
+                                local status_check=$(tailscale status 2>&1)
+                                if echo "$status_check" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+                                    display_success "Tailscale authentication verified!"
+                                    log_operation "Manual authentication verified"
+                                    auth_successful=true
+                                    break 2
+                                else
+                                    display_warning "Tailscale status doesn't show connection yet"
+                                    echo "Status: $status_check"
+                                    echo ""
+                                fi
+                                ;;
+                            [Nn]|[Nn][Oo])
+                                if [ $auth_attempt -lt $max_auth_attempts ]; then
+                                    display_info "Will retry authentication..."
+                                    break
+                                else
+                                    display_warning "Max attempts reached"
+                                    break
+                                fi
+                                ;;
+                            [Rr]|[Rr][Ee][Tt][Rr][Yy])
+                                display_info "Retrying..."
+                                break
+                                ;;
+                            *)
+                                echo "Please answer 'yes', 'no', or 'retry'"
+                                ;;
+                        esac
+                    done
+                fi
             else
-                display_warning "Could not extract authentication URL from Tailscale output"
-                log_operation "WARNING: No authentication URL found in tailscale up output"
-                display_info "Tailscale may already be authenticated or authentication may have completed automatically"
+                display_error "Tailscale up command failed with exit code $tailscale_exit_code"
+                log_operation "ERROR: Tailscale up failed with exit code $tailscale_exit_code"
+                
+                if [ $auth_attempt -lt $max_auth_attempts ]; then
+                    display_info "Will retry..."
+                fi
+            fi
+        else
+            # Tailscale status command failed or returned unexpected output
+            display_error "Tailscale status check failed on attempt $auth_attempt"
+            log_operation "ERROR: Tailscale status unexpected output on attempt $auth_attempt"
+            
+            # Show what the error is
+            echo ""
+            echo "Tailscale status output:"
+            echo "$status_output"
+            echo ""
+            
+            if [ $auth_attempt -lt $max_auth_attempts ]; then
+                display_info "Waiting 5 seconds before retry..."
+                sleep 5
             fi
         fi
-    else
-        display_warning "Tailscale is not running or not installed"
-        log_operation "WARNING: Tailscale status check failed"
+        
+        auth_attempt=$((auth_attempt + 1))
+    done
+    
+    # If authentication still not successful after all attempts
+    if [ "$auth_successful" = false ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "${YELLOW}⚠ Tailscale Authentication Not Completed${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "After $max_auth_attempts attempts, Tailscale authentication could not be completed."
+        echo ""
+        echo "Troubleshooting:"
+        echo "  1. Check if tailscaled is running: systemctl status tailscaled"
+        echo "  2. Try restarting the service: systemctl restart tailscaled"
+        echo "  3. Check logs: journalctl -u tailscaled -n 50"
+        echo "  4. Verify installation: tailscale version"
+        echo "  5. Try manual authentication: sudo tailscale up"
+        echo "  6. Check Tailscale status: sudo tailscale status"
+        echo ""
+        echo "Note: If you use GitHub to sign in to Tailscale, make sure to"
+        echo "      select GitHub as your authentication method in the browser."
+        echo ""
+        echo "You can continue without Tailscale authentication and set it up later."
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        
+        while true; do
+            echo -n "Continue without Tailscale authentication? (yes/no): "
+            read -r response
+            
+            case "$response" in
+                [Yy]|[Yy][Ee][Ss])
+                    display_info "Continuing without Tailscale authentication"
+                    log_operation "User chose to continue without Tailscale authentication after $max_auth_attempts attempts"
+                    break
+                    ;;
+                [Nn]|[Nn][Oo])
+                    display_error "Deployment cancelled"
+                    log_operation "User cancelled deployment due to Tailscale authentication failure"
+                    exit 1
+                    ;;
+                *)
+                    echo "Please answer 'yes' or 'no'"
+                    ;;
+            esac
+        done
     fi
     echo ""
     
